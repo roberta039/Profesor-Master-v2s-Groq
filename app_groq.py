@@ -3657,34 +3657,29 @@ BAC_DATE_REALE = {
 
 
 def extract_text_from_photo(image_bytes: bytes, materie_label: str) -> str:
-    """Extrage textul scris de mână dintr-o fotografie folosind Groq Vision."""
+    """Extrage textul scris de mână dintr-o fotografie folosind Groq Vision (base64)."""
     import base64
     try:
         key = keys[st.session_state.get("key_index", 0)]
         client = GroqClient(api_key=key)
 
         b64 = base64.b64encode(image_bytes).decode("utf-8")
-        
-        # Folosim modelul VISION
+        prompt = (
+            f"Ești un asistent care transcrie text scris de mână din lucrări de elevi la {materie_label}. "
+            f"Transcrie EXACT tot ce este scris în imagine, inclusiv formule, simboluri matematice și calcule. "
+            f"Păstrează structura (Subiectul I, II, III dacă există). "
+            f"Dacă un cuvânt e greu de citit, transcrie-l cu [?]. "
+            f"Nu adăuga nimic, nu corecta nimic — transcrie fidel."
+        )
         response = client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",  # ← Schimbat aici!
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{b64}"
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": f"Ești un asistent care transcrie text scris de mână din lucrări de elevi la {materie_label}. Transcrie EXACT tot ce este scris în imagine, inclusiv formule, simboluri matematice și calcule. Păstrează structura. Dacă un cuvânt e greu de citit, transcrie-l cu [?]. Nu adăuga nimic, nu corecta nimic — transcrie fidel."
-                        }
-                    ]
-                }
-            ],
+            model="llama-3.2-11b-vision-preview",  # model Groq cu vision
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
             max_tokens=2048,
         )
         return response.choices[0].message.content.strip()
@@ -4612,40 +4607,22 @@ def run_quiz_ui():
 # Compensație: Groq e mult mai rapid decât Gemini (răspunsuri în <1s).
 
 def run_chat_with_rotation(history_obj, payload, system_prompt=None):
-    """Rulează chat cu rotație automată a cheilor API Groq."""
-    
+    """Rulează chat cu rotație automată a cheilor API Groq.
+
+    Compatibil cu același API ca versiunea Gemini — history_obj și payload
+    au același format, returnează un generator de chunks text.
+    """
+    GROQ_MODEL = "llama-3.3-70b-versatile"
+
     if not keys:
         raise Exception(
             "Nicio cheie API Groq configurată. "
-            "Adaugă cel puțin o cheie în st.secrets['GROQ_API_KEYS'] sau introdu-o manual în sidebar."
+            "Adaugă cel puțin o cheie în st.secrets['GOOGLE_API_KEYS'] sau introdu-o manual în sidebar."
         )
 
     active_prompt = system_prompt or st.session_state.get("system_prompt") or SYSTEM_PROMPT
     max_retries = max(len(keys) * 3, 6)
     last_error = None
-
-    # Verificăm dacă avem imagini în payload
-    has_images = False
-    text_parts = []
-    image_data = None
-    
-    if isinstance(payload, list):
-        for item in payload:
-            if isinstance(item, str) and item.startswith("data:image/"):
-                has_images = True
-                image_data = item
-            elif isinstance(item, str):
-                text_parts.append(item)
-            else:
-                text_parts.append(str(item))
-    else:
-        text_parts.append(str(payload))
-    
-    # Selectăm modelul în funcție de prezența imaginilor
-    if has_images:
-        GROQ_MODEL = "llama-3.2-11b-vision-preview"  # Model pentru imagini
-    else:
-        GROQ_MODEL = "llama-3.3-70b-versatile"  # Model pentru text
 
     for attempt in range(max_retries):
         if st.session_state.key_index >= len(keys):
@@ -4655,59 +4632,45 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
         try:
             client = GroqClient(api_key=current_key)
 
-            # Construim mesajele
+            # Construim istoricul în format OpenAI-compatibil (același ca Groq)
             messages = [{"role": "system", "content": active_prompt}]
-            
-            # Adăugăm istoricul conversației
             for msg in history_obj:
                 role = "assistant" if msg.get("role") == "model" else msg.get("role", "user")
                 parts = msg.get("parts", [])
-                
                 if isinstance(parts, list):
-                    text_content = []
-                    for part in parts:
-                        if isinstance(part, str):
-                            text_content.append(part)
-                        elif isinstance(part, dict) and part.get("text"):
-                            text_content.append(part["text"])
+                    # Înlocuim imaginile base64 din istoric cu placeholder text —
+                    # Groq acceptă doar string în mesajele istorice, nu array-uri
+                    text_parts = []
+                    for p in parts:
+                        if isinstance(p, str) and p.startswith("data:image/"):
+                            text_parts.append("[imagine atașată anterior]")
+                        elif isinstance(p, str):
+                            text_parts.append(p)
                         else:
-                            text_content.append(str(part))
-                    content = " ".join(text_content)
+                            text_parts.append(str(p))
+                    content = " ".join(text_parts)
                 else:
                     content = str(parts)
-                
                 if content.strip():
                     messages.append({"role": role, "content": content})
 
-            # Adăugăm mesajul curent
-            if has_images and image_data:
-                # Formatul CORECT pentru imagini în Groq
-                user_content = []
-                
-                # Adăugăm imaginea
-                user_content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": image_data  # data:image/jpeg;base64,...
-                    }
-                })
-                
-                # Adăugăm textul
-                text_content = " ".join(text_parts) if text_parts else "Ce problemă este în această imagine?"
-                user_content.append({
-                    "type": "text",
-                    "text": text_content
-                })
-                
-                messages.append({
-                    "role": "user",
-                    "content": user_content
-                })
+            # Adăugăm mesajul curent (payload)
+            # Payload poate conține: string-uri text, string-uri base64 (imagini data:...)
+            user_parts = []
+            for p in (payload if isinstance(payload, list) else [payload]):
+                if isinstance(p, str) and p.startswith("data:image/"):
+                    # Imagine base64 — trimisă ca image_url pentru Groq vision
+                    user_parts.append({"type": "image_url", "image_url": {"url": p}})
+                elif isinstance(p, str):
+                    user_parts.append({"type": "text", "text": p})
+                else:
+                    user_parts.append({"type": "text", "text": str(p)})
+
+            if len(user_parts) == 1 and user_parts[0]["type"] == "text":
+                # Optimizare: dacă e doar text, trimitem string simplu (compatibilitate mai bună)
+                messages.append({"role": "user", "content": user_parts[0]["text"]})
             else:
-                # Doar text
-                user_content = " ".join(text_parts) if text_parts else ""
-                if user_content:
-                    messages.append({"role": "user", "content": user_content})
+                messages.append({"role": "user", "content": user_parts})
 
             # Apel streaming
             stream = client.chat.completions.create(
@@ -4722,10 +4685,10 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
             for chunk in stream:
                 delta = chunk.choices[0].delta.content or ""
                 if delta:
-                    _output_tokens += len(delta.split())
+                    _output_tokens += len(delta.split())  # estimare
                     yield delta
 
-            # Actualizăm contoarele
+            # Actualizăm contoarele token per cheie
             _key_id = f"_tokens_key_{st.session_state.get('key_index', 0)}"
             _prev = st.session_state.get(_key_id, {"prompt": 0, "output": 0, "calls": 0})
             st.session_state[_key_id] = {
@@ -4737,31 +4700,46 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
 
         except Exception as e:
             last_error = e
-            error_msg = str(e).lower()
-            
-            print(f"Eroare cu cheia {st.session_state.key_index}: {e}")
-            
-            if "invalid_api_key" in error_msg or "authentication" in error_msg or "401" in error_msg:
+            error_msg = str(e) + " " + repr(e)
+
+            _is_key_error = (
+                "invalid_api_key" in error_msg.lower()
+                or "authentication" in error_msg.lower()
+                or "401" in error_msg
+                or "429" in error_msg
+                or "rate_limit" in error_msg.lower()
+                or "quota" in error_msg.lower()
+            )
+
+            if _is_key_error:
+                _quota_key = "_quota_rotations"
+                rotations = st.session_state.get(_quota_key, 0) + 1
+                st.session_state[_quota_key] = rotations
+                if len(keys) <= 1 or rotations >= len(keys):
+                    st.session_state.pop(_quota_key, None)
+                    raise Exception(
+                        "Toate cheile API sunt epuizate sau invalide. "
+                        "Reîncearcă mai târziu sau adaugă o cheie personală în sidebar. 🔑"
+                    )
+                st.toast(f"⚠️ Cheie invalidă/epuizată — schimb la cheia {st.session_state.key_index + 2}...", icon="🔄")
                 st.session_state.key_index = (st.session_state.key_index + 1) % len(keys)
                 time.sleep(0.5)
                 continue
-            elif "429" in error_msg or "rate_limit" in error_msg or "quota" in error_msg:
-                st.session_state.key_index = (st.session_state.key_index + 1) % len(keys)
-                time.sleep(1)
-                continue
-            elif "503" in error_msg or "overloaded" in error_msg:
+
+            elif "503" in error_msg or "overloaded" in error_msg.lower():
                 wait = min(0.5 * (2 ** attempt), 5)
+                st.toast("🐢 Server ocupat, reîncerc...", icon="⏳")
                 time.sleep(wait)
                 continue
-            else:
-                if attempt < max_retries - 1:
-                    st.session_state.key_index = (st.session_state.key_index + 1) % len(keys)
-                    time.sleep(0.5)
-                    continue
-                else:
-                    raise e
 
-    raise Exception(f"Nu s-a putut completa request-ul după {max_retries} încercări. Ultima eroare: {last_error}")
+            else:
+                raise e
+
+    st.session_state.pop("_quota_rotations", None)
+    raise Exception(
+        "Ne pare rău, serviciul AI este momentan supraîncărcat. "
+        "Te rugăm să încerci din nou în câteva secunde. 🙏"
+    )
 
 # === UI PRINCIPAL ===
 st.title("🎓 Profesor Liceu · Groq")
