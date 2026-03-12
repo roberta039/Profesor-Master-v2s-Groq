@@ -4607,17 +4607,13 @@ def run_quiz_ui():
 # Compensație: Groq e mult mai rapid decât Gemini (răspunsuri în <1s).
 
 def run_chat_with_rotation(history_obj, payload, system_prompt=None):
-    """Rulează chat cu rotație automată a cheilor API Groq.
-
-    Compatibil cu același API ca versiunea Gemini — history_obj și payload
-    au același format, returnează un generator de chunks text.
-    """
+    """Rulează chat cu rotație automată a cheilor API Groq."""
     GROQ_MODEL = "llama-3.3-70b-versatile"
 
     if not keys:
         raise Exception(
             "Nicio cheie API Groq configurată. "
-            "Adaugă cel puțin o cheie în st.secrets['GOOGLE_API_KEYS'] sau introdu-o manual în sidebar."
+            "Adaugă cel puțin o cheie în st.secrets['GROQ_API_KEYS'] sau introdu-o manual în sidebar."
         )
 
     active_prompt = system_prompt or st.session_state.get("system_prompt") or SYSTEM_PROMPT
@@ -4632,36 +4628,55 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
         try:
             client = GroqClient(api_key=current_key)
 
-            # Construim istoricul în format OpenAI-compatibil (același ca Groq)
+            # Construim istoricul în format OpenAI-compatibil
             messages = [{"role": "system", "content": active_prompt}]
+            
+            # Adăugăm istoricul conversației
             for msg in history_obj:
-                # history_obj vine în format Gemini {"role": "model"/"user", "parts": [...]}
-                # îl convertim la format OpenAI {"role": "assistant"/"user", "content": "..."}
                 role = "assistant" if msg.get("role") == "model" else msg.get("role", "user")
                 parts = msg.get("parts", [])
                 if isinstance(parts, list):
-                    content = " ".join(p if isinstance(p, str) else str(p) for p in parts)
+                    content = " ".join(str(p) for p in parts if p)
                 else:
                     content = str(parts)
-                messages.append({"role": role, "content": content})
+                if content.strip():  # Nu adăugăm mesaje goale
+                    messages.append({"role": role, "content": content})
 
-            # Adăugăm mesajul curent (payload)
-            # Payload poate conține: string-uri text, string-uri base64 (imagini data:...)
-            user_parts = []
-            for p in (payload if isinstance(payload, list) else [payload]):
-                if isinstance(p, str) and p.startswith("data:image/"):
-                    # Imagine base64 — trimisă ca image_url pentru Groq vision
-                    user_parts.append({"type": "image_url", "image_url": {"url": p}})
-                elif isinstance(p, str):
-                    user_parts.append({"type": "text", "text": p})
+            # Procesăm payload-ul curent
+            if isinstance(payload, list):
+                # Verificăm dacă avem imagini în payload
+                has_images = any(isinstance(p, str) and p.startswith("data:image/") for p in payload)
+                
+                if has_images:
+                    # Formatul corect pentru Groq cu imagini
+                    content_parts = []
+                    for p in payload:
+                        if isinstance(p, str) and p.startswith("data:image/"):
+                            # Imagine base64
+                            content_parts.append({
+                                "type": "image_url",
+                                "image_url": {"url": p}
+                            })
+                        elif isinstance(p, str):
+                            # Text
+                            content_parts.append({
+                                "type": "text",
+                                "text": p
+                            })
+                    messages.append({
+                        "role": "user",
+                        "content": content_parts  # Așa acceptă Groq
+                    })
                 else:
-                    user_parts.append({"type": "text", "text": str(p)})
-
-            if len(user_parts) == 1 and user_parts[0]["type"] == "text":
-                # Optimizare: dacă e doar text, trimitem string simplu (compatibilitate mai bună)
-                messages.append({"role": "user", "content": user_parts[0]["text"]})
+                    # Doar text - concatenăm și trimitem ca string
+                    text_content = " ".join(str(p) for p in payload if p)
+                    messages.append({"role": "user", "content": text_content})
             else:
-                messages.append({"role": "user", "content": user_parts})
+                # Payload e string simplu
+                messages.append({"role": "user", "content": str(payload)})
+
+            # Debug - poți dezactiva după ce funcționează
+            # st.write("Messages structure:", messages)
 
             # Apel streaming
             stream = client.chat.completions.create(
@@ -4676,10 +4691,10 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
             for chunk in stream:
                 delta = chunk.choices[0].delta.content or ""
                 if delta:
-                    _output_tokens += len(delta.split())  # estimare
+                    _output_tokens += len(delta.split())
                     yield delta
 
-            # Actualizăm contoarele token per cheie
+            # Actualizăm contoarele
             _key_id = f"_tokens_key_{st.session_state.get('key_index', 0)}"
             _prev = st.session_state.get(_key_id, {"prompt": 0, "output": 0, "calls": 0})
             st.session_state[_key_id] = {
@@ -4691,46 +4706,31 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
 
         except Exception as e:
             last_error = e
-            error_msg = str(e) + " " + repr(e)
-
-            _is_key_error = (
-                "invalid_api_key" in error_msg.lower()
-                or "authentication" in error_msg.lower()
-                or "401" in error_msg
-                or "429" in error_msg
-                or "rate_limit" in error_msg.lower()
-                or "quota" in error_msg.lower()
-            )
-
-            if _is_key_error:
-                _quota_key = "_quota_rotations"
-                rotations = st.session_state.get(_quota_key, 0) + 1
-                st.session_state[_quota_key] = rotations
-                if len(keys) <= 1 or rotations >= len(keys):
-                    st.session_state.pop(_quota_key, None)
-                    raise Exception(
-                        "Toate cheile API sunt epuizate sau invalide. "
-                        "Reîncearcă mai târziu sau adaugă o cheie personală în sidebar. 🔑"
-                    )
-                st.toast(f"⚠️ Cheie invalidă/epuizată — schimb la cheia {st.session_state.key_index + 2}...", icon="🔄")
+            error_msg = str(e)
+            
+            # Logare eroare pentru debug
+            print(f"Eroare cu cheia {st.session_state.key_index}: {error_msg}")
+            
+            if "invalid_api_key" in error_msg.lower() or "authentication" in error_msg.lower() or "401" in error_msg:
+                # Cheie invalidă - trecem la următoarea
                 st.session_state.key_index = (st.session_state.key_index + 1) % len(keys)
                 time.sleep(0.5)
                 continue
-
+            elif "429" in error_msg or "rate_limit" in error_msg.lower() or "quota" in error_msg.lower():
+                # Rate limit - așteptăm și încercăm altă cheie
+                st.session_state.key_index = (st.session_state.key_index + 1) % len(keys)
+                time.sleep(1)
+                continue
             elif "503" in error_msg or "overloaded" in error_msg.lower():
+                # Server busy - așteptăm și reîncercăm
                 wait = min(0.5 * (2 ** attempt), 5)
-                st.toast("🐢 Server ocupat, reîncerc...", icon="⏳")
                 time.sleep(wait)
                 continue
-
             else:
+                # Eroare necunoscută - o propagăm mai departe
                 raise e
 
-    st.session_state.pop("_quota_rotations", None)
-    raise Exception(
-        "Ne pare rău, serviciul AI este momentan supraîncărcat. "
-        "Te rugăm să încerci din nou în câteva secunde. 🙏"
-    )
+    raise Exception(f"Nu s-a putut completa request-ul după {max_retries} încercări. Ultima eroare: {last_error}")
 
 # === UI PRINCIPAL ===
 st.title("🎓 Profesor Liceu · Groq")
