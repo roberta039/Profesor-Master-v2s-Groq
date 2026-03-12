@@ -4638,8 +4638,6 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
                 role = "assistant" if msg.get("role") == "model" else msg.get("role", "user")
                 parts = msg.get("parts", [])
                 if isinstance(parts, list):
-                    # Înlocuim imaginile base64 din istoric cu placeholder text —
-                    # Groq acceptă doar string în mesajele istorice, nu array-uri
                     text_parts = []
                     for p in parts:
                         if isinstance(p, str) and p.startswith("data:image/"):
@@ -4654,27 +4652,33 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
                 if content.strip():
                     messages.append({"role": role, "content": content})
 
+            # Detectăm dacă payload-ul conține imagini
+            payload_list = payload if isinstance(payload, list) else [payload]
+            has_image = any(isinstance(p, str) and p.startswith("data:image/") for p in payload_list)
+
+            # Selectăm modelul: vision dacă avem imagini, text dacă nu
+            model_to_use = "llama-3.2-11b-vision-preview" if has_image else GROQ_MODEL
+
             # Adăugăm mesajul curent (payload)
-            # Payload poate conține: string-uri text, string-uri base64 (imagini data:...)
             user_parts = []
-            for p in (payload if isinstance(payload, list) else [payload]):
+            for p in payload_list:
                 if isinstance(p, str) and p.startswith("data:image/"):
-                    # Imagine base64 — trimisă ca image_url pentru Groq vision
                     user_parts.append({"type": "image_url", "image_url": {"url": p}})
                 elif isinstance(p, str):
                     user_parts.append({"type": "text", "text": p})
                 else:
                     user_parts.append({"type": "text", "text": str(p)})
 
-            if len(user_parts) == 1 and user_parts[0]["type"] == "text":
-                # Optimizare: dacă e doar text, trimitem string simplu (compatibilitate mai bună)
-                messages.append({"role": "user", "content": user_parts[0]["text"]})
-            else:
+            if has_image:
+                # Model vision: trimitem array cu imagine + text
                 messages.append({"role": "user", "content": user_parts})
+            else:
+                # Model text: string simplu
+                messages.append({"role": "user", "content": " ".join(p["text"] for p in user_parts)})
 
             # Apel streaming
             stream = client.chat.completions.create(
-                model=GROQ_MODEL,
+                model=model_to_use,
                 messages=messages,
                 max_tokens=4096,
                 temperature=0.7,
