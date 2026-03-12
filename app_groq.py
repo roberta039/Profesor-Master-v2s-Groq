@@ -3672,7 +3672,7 @@ def extract_text_from_photo(image_bytes: bytes, materie_label: str) -> str:
             f"Nu adăuga nimic, nu corecta nimic — transcrie fidel."
         )
         response = client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",  # model Groq cu vision
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=[{
                 "role": "user",
                 "content": [
@@ -4657,7 +4657,7 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
             has_image = any(isinstance(p, str) and p.startswith("data:image/") for p in payload_list)
 
             # Selectăm modelul: vision dacă avem imagini, text dacă nu
-            model_to_use = "llama-3.2-11b-vision-preview" if has_image else GROQ_MODEL
+            model_to_use = "meta-llama/llama-4-scout-17b-16e-instruct" if has_image else GROQ_MODEL
 
             # Adăugăm mesajul curent (payload)
             user_parts = []
