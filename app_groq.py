@@ -3657,29 +3657,34 @@ BAC_DATE_REALE = {
 
 
 def extract_text_from_photo(image_bytes: bytes, materie_label: str) -> str:
-    """Extrage textul scris de mână dintr-o fotografie folosind Groq Vision (base64)."""
+    """Extrage textul scris de mână dintr-o fotografie folosind Groq Vision."""
     import base64
     try:
         key = keys[st.session_state.get("key_index", 0)]
         client = GroqClient(api_key=key)
 
         b64 = base64.b64encode(image_bytes).decode("utf-8")
-        prompt = (
-            f"Ești un asistent care transcrie text scris de mână din lucrări de elevi la {materie_label}. "
-            f"Transcrie EXACT tot ce este scris în imagine, inclusiv formule, simboluri matematice și calcule. "
-            f"Păstrează structura (Subiectul I, II, III dacă există). "
-            f"Dacă un cuvânt e greu de citit, transcrie-l cu [?]. "
-            f"Nu adăuga nimic, nu corecta nimic — transcrie fidel."
-        )
+        
+        # Folosim modelul VISION
         response = client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",  # model Groq cu vision
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                    {"type": "text", "text": prompt},
-                ],
-            }],
+            model="llama-3.2-11b-vision-preview",  # ← Schimbat aici!
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{b64}"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": f"Ești un asistent care transcrie text scris de mână din lucrări de elevi la {materie_label}. Transcrie EXACT tot ce este scris în imagine, inclusiv formule, simboluri matematice și calcule. Păstrează structura. Dacă un cuvânt e greu de citit, transcrie-l cu [?]. Nu adăuga nimic, nu corecta nimic — transcrie fidel."
+                        }
+                    ]
+                }
+            ],
             max_tokens=2048,
         )
         return response.choices[0].message.content.strip()
