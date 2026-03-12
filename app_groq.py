@@ -5978,6 +5978,18 @@ if user_input := st.chat_input("Întreabă profesorul..."):
                 f"Elevul ți-a trimis documentul '{fname}'. "
                 "Citește și analizează tot conținutul înainte de a răspunde."
             )
+    # Detectăm dacă e o cerere de desen — injectăm instrucțiune strictă în payload
+    _DESEN_KEYWORDS = ["desen", "desenează", "desenez", "schemă", "schema", "diagramă",
+                       "diagrama", "arată-mi", "arata-mi", "ilustrează", "ilustreaza",
+                       "fă un desen", "fa un desen", "fă-mi un desen", "fa-mi un desen"]
+    _is_desen_request = any(kw in user_input.lower() for kw in _DESEN_KEYWORDS)
+    if _is_desen_request:
+        final_payload.append(
+            "INSTRUCȚIUNE SISTEM: Răspunde EXCLUSIV cu desenul SVG în format "
+            "[[DESEN_SVG]]<svg ...>...</svg>[[/DESEN_SVG]]. "
+            "NU include text, explicații, rezolvări sau orice alt conținut în afara blocului SVG. "
+            "DOAR desenul, nimic altceva. Mesajul elevului: "
+        )
     final_payload.append(user_input)
 
     # Salvăm payload-ul ÎNAINTE de apelul AI — dacă cheia se epuizează în stream,
