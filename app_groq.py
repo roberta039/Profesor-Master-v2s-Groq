@@ -1349,6 +1349,10 @@ _PROMPT_FINAL = r"""
         3. IMPORTANT: Nu uita tag-ul de deschidere <svg> și cel de închidere </svg>!
         4. Adaugă întotdeauna etichete text (<text>) pentru a numi elementele din desen.
         5. Folosește culori clare și contraste bune pentru lizibilitate.
+        6. REGULĂ CRITICĂ: Dacă elevul cere DOAR desenul (ex: "fă-mi un desen", "arată-mi schema",
+           "desenează"), răspunzi EXCLUSIV cu desenul SVG — fără explicații, fără rezolvare,
+           fără text înainte sau după. DOAR blocul [[DESEN_SVG]]...[[/DESEN_SVG]].
+           Dacă elevul vrea și explicații, le va cere separat.
 """
 
 _PROMPT_SUBJECTS: dict[str, str] = {
