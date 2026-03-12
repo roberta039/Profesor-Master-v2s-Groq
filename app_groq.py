@@ -4608,8 +4608,7 @@ def run_quiz_ui():
 
 def run_chat_with_rotation(history_obj, payload, system_prompt=None):
     """Rulează chat cu rotație automată a cheilor API Groq."""
-    GROQ_MODEL = "llama-3.3-70b-versatile"
-
+    
     if not keys:
         raise Exception(
             "Nicio cheie API Groq configurată. "
@@ -4620,6 +4619,29 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
     max_retries = max(len(keys) * 3, 6)
     last_error = None
 
+    # Verificăm dacă avem imagini în payload
+    has_images = False
+    text_parts = []
+    image_data = None
+    
+    if isinstance(payload, list):
+        for item in payload:
+            if isinstance(item, str) and item.startswith("data:image/"):
+                has_images = True
+                image_data = item
+            elif isinstance(item, str):
+                text_parts.append(item)
+            else:
+                text_parts.append(str(item))
+    else:
+        text_parts.append(str(payload))
+    
+    # Selectăm modelul în funcție de prezența imaginilor
+    if has_images:
+        GROQ_MODEL = "llama-3.2-11b-vision-preview"  # Model pentru imagini
+    else:
+        GROQ_MODEL = "llama-3.3-70b-versatile"  # Model pentru text
+
     for attempt in range(max_retries):
         if st.session_state.key_index >= len(keys):
             st.session_state.key_index = 0
@@ -4628,55 +4650,59 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
         try:
             client = GroqClient(api_key=current_key)
 
-            # Construim istoricul în format OpenAI-compatibil
+            # Construim mesajele
             messages = [{"role": "system", "content": active_prompt}]
             
             # Adăugăm istoricul conversației
             for msg in history_obj:
                 role = "assistant" if msg.get("role") == "model" else msg.get("role", "user")
                 parts = msg.get("parts", [])
+                
                 if isinstance(parts, list):
-                    content = " ".join(str(p) for p in parts if p)
+                    text_content = []
+                    for part in parts:
+                        if isinstance(part, str):
+                            text_content.append(part)
+                        elif isinstance(part, dict) and part.get("text"):
+                            text_content.append(part["text"])
+                        else:
+                            text_content.append(str(part))
+                    content = " ".join(text_content)
                 else:
                     content = str(parts)
-                if content.strip():  # Nu adăugăm mesaje goale
+                
+                if content.strip():
                     messages.append({"role": role, "content": content})
 
-            # Procesăm payload-ul curent
-            if isinstance(payload, list):
-                # Verificăm dacă avem imagini în payload
-                has_images = any(isinstance(p, str) and p.startswith("data:image/") for p in payload)
+            # Adăugăm mesajul curent
+            if has_images and image_data:
+                # Formatul CORECT pentru imagini în Groq
+                user_content = []
                 
-                if has_images:
-                    # Formatul corect pentru Groq cu imagini
-                    content_parts = []
-                    for p in payload:
-                        if isinstance(p, str) and p.startswith("data:image/"):
-                            # Imagine base64
-                            content_parts.append({
-                                "type": "image_url",
-                                "image_url": {"url": p}
-                            })
-                        elif isinstance(p, str):
-                            # Text
-                            content_parts.append({
-                                "type": "text",
-                                "text": p
-                            })
-                    messages.append({
-                        "role": "user",
-                        "content": content_parts  # Așa acceptă Groq
-                    })
-                else:
-                    # Doar text - concatenăm și trimitem ca string
-                    text_content = " ".join(str(p) for p in payload if p)
-                    messages.append({"role": "user", "content": text_content})
+                # Adăugăm imaginea
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": image_data  # data:image/jpeg;base64,...
+                    }
+                })
+                
+                # Adăugăm textul
+                text_content = " ".join(text_parts) if text_parts else "Ce problemă este în această imagine?"
+                user_content.append({
+                    "type": "text",
+                    "text": text_content
+                })
+                
+                messages.append({
+                    "role": "user",
+                    "content": user_content
+                })
             else:
-                # Payload e string simplu
-                messages.append({"role": "user", "content": str(payload)})
-
-            # Debug - poți dezactiva după ce funcționează
-            # st.write("Messages structure:", messages)
+                # Doar text
+                user_content = " ".join(text_parts) if text_parts else ""
+                if user_content:
+                    messages.append({"role": "user", "content": user_content})
 
             # Apel streaming
             stream = client.chat.completions.create(
@@ -4706,29 +4732,29 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
 
         except Exception as e:
             last_error = e
-            error_msg = str(e)
+            error_msg = str(e).lower()
             
-            # Logare eroare pentru debug
-            print(f"Eroare cu cheia {st.session_state.key_index}: {error_msg}")
+            print(f"Eroare cu cheia {st.session_state.key_index}: {e}")
             
-            if "invalid_api_key" in error_msg.lower() or "authentication" in error_msg.lower() or "401" in error_msg:
-                # Cheie invalidă - trecem la următoarea
+            if "invalid_api_key" in error_msg or "authentication" in error_msg or "401" in error_msg:
                 st.session_state.key_index = (st.session_state.key_index + 1) % len(keys)
                 time.sleep(0.5)
                 continue
-            elif "429" in error_msg or "rate_limit" in error_msg.lower() or "quota" in error_msg.lower():
-                # Rate limit - așteptăm și încercăm altă cheie
+            elif "429" in error_msg or "rate_limit" in error_msg or "quota" in error_msg:
                 st.session_state.key_index = (st.session_state.key_index + 1) % len(keys)
                 time.sleep(1)
                 continue
-            elif "503" in error_msg or "overloaded" in error_msg.lower():
-                # Server busy - așteptăm și reîncercăm
+            elif "503" in error_msg or "overloaded" in error_msg:
                 wait = min(0.5 * (2 ** attempt), 5)
                 time.sleep(wait)
                 continue
             else:
-                # Eroare necunoscută - o propagăm mai departe
-                raise e
+                if attempt < max_retries - 1:
+                    st.session_state.key_index = (st.session_state.key_index + 1) % len(keys)
+                    time.sleep(0.5)
+                    continue
+                else:
+                    raise e
 
     raise Exception(f"Nu s-a putut completa request-ul după {max_retries} încercări. Ultima eroare: {last_error}")
 
