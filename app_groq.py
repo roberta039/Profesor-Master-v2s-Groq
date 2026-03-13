@@ -4649,8 +4649,9 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
         )
 
     active_prompt = system_prompt or st.session_state.get("system_prompt") or SYSTEM_PROMPT
-    max_retries = max(len(keys) * 3, 6)
+    max_retries = max(len(keys) * 3, 10)  # minim 10 încercări
     last_error = None
+    _rate_limit_attempts = 0  # contor separat pentru 429
 
     for attempt in range(max_retries):
         if st.session_state.key_index >= len(keys):
@@ -4752,10 +4753,23 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
             )
 
             if _is_rate_limit:
-                # Rate limit pe minut (429) — așteptăm și reîncercăm, NU renunțăm
-                wait = min(3 * (attempt + 1), 15)  # 3s, 6s, 9s... max 15s
-                st.toast(f"⏳ Limită depășită — reîncerc în {wait}s...", icon="🔄")
+                # Rate limit pe minut (429) — backoff exponențial
+                _rate_limit_attempts += 1
+                if _rate_limit_attempts == 1:
+                    wait = 5
+                elif _rate_limit_attempts == 2:
+                    wait = 10
+                elif _rate_limit_attempts == 3:
+                    wait = 20
+                else:
+                    wait = 30
+                st.toast(f"⏳ Limită Groq depășită — reîncerc în {wait}s... ({_rate_limit_attempts}/4)", icon="🔄")
                 time.sleep(wait)
+                if _rate_limit_attempts >= 4:
+                    raise Exception(
+                        "Groq rate limit activ. Ai trimis prea multe mesaje într-un minut. "
+                        "Așteaptă 30-60 de secunde și încearcă din nou. 🕐"
+                    )
                 continue
 
             elif _is_invalid_key or _is_quota:
@@ -4785,8 +4799,8 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
 
     st.session_state.pop("_quota_rotations", None)
     raise Exception(
-        "Ne pare rău, serviciul AI este momentan supraîncărcat. "
-        "Te rugăm să încerci din nou în câteva secunde. 🙏"
+        "Groq rate limit activ — ai trimis prea multe mesaje rapid. "
+        "Așteaptă 30-60 de secunde și încearcă din nou. 🕐"
     )
 
 # === UI PRINCIPAL ===
@@ -5351,13 +5365,18 @@ if (
             or st.session_state.get(_sum_sid_key) != st.session_state.session_id
         )
         if _needs_summary:
-            with st.spinner("📚 Profesorul reîncarcă contextul conversației anterioare..."):
-                _auto_summary = summarize_conversation(_loaded_msgs)
-            if _auto_summary:
-                st.session_state[_sum_key]     = _auto_summary
-                st.session_state["_summary_cached_at"] = _loaded_count
-                st.session_state[_sum_sid_key] = st.session_state.session_id
-                st.toast("✅ Contextul conversației anterioare a fost reîncărcat!", icon="🧠")
+            try:
+                with st.spinner("📚 Profesorul reîncarcă contextul conversației anterioare..."):
+                    _auto_summary = summarize_conversation(_loaded_msgs)
+                if _auto_summary:
+                    st.session_state[_sum_key]     = _auto_summary
+                    st.session_state["_summary_cached_at"] = _loaded_count
+                    st.session_state[_sum_sid_key] = st.session_state.session_id
+                    st.toast("✅ Contextul conversației anterioare a fost reîncărcat!", icon="🧠")
+            except Exception:
+                # Rezumatul e opțional — dacă Groq dă 429 sau altă eroare la refresh,
+                # ignorăm silențios. Conversația funcționează normal fără rezumat.
+                pass
 
 # Banner mod Pas cu Pas
 if st.session_state.get("pas_cu_pas"):
@@ -5504,10 +5523,17 @@ if st.session_state.get("_quick_action"):
                 st.session_state.pop("_retry_payload", None)
             except Exception as e:
                 message_placeholder.empty()
-                _is_key_err = any(x in str(e) for x in ["epuizat", "invalide", "quota", "429", "API key"])
-                if _is_key_err:
-                    st.warning("⚠️ Cheia API s-a epuizat. Cheia a fost schimbată — apasă **Reîncercați**.", icon="🔑")
-                    if st.button("🔄 Reîncercați răspunsul", key="_retry_quick_action", type="primary"):
+                _err_str = str(e)
+                _is_rate_limit = any(x in _err_str for x in ["429", "rate_limit", "rate limit", "too many requests", "limită", "Limită"])
+                _is_key_err = any(x in _err_str for x in ["epuizat", "invalide", "quota", "API key", "invalid_api_key", "authentication", "401"])
+                if _is_rate_limit:
+                    st.warning("⏳ Groq este puțin aglomerat — mai încearcă o dată în câteva secunde.", icon="🔄")
+                    if st.button("🔄 Reîncercați", key="_retry_quick_action", type="primary"):
+                        st.session_state["_pending_retry"] = True
+                        st.rerun()
+                elif _is_key_err:
+                    st.warning("⚠️ Cheia API Groq este invalidă sau quota zilnică s-a epuizat. Verifică cheia în console.groq.com.", icon="🔑")
+                    if st.button("🔄 Reîncercați", key="_retry_quick_action", type="primary"):
                         st.session_state["_pending_retry"] = True
                         st.rerun()
                 else:
@@ -6072,12 +6098,17 @@ if user_input := st.chat_input("Întreabă profesorul..."):
         except Exception as e:
             message_placeholder.empty()
             err_str = str(e)
-            # Dacă eroarea e de cheie/quota, oferim buton de reîncercare automată
-            _is_key_err = any(x in err_str for x in ["epuizat", "invalide", "quota", "429", "API key"])
-            if _is_key_err:
+            _is_rate_limit2 = any(x in err_str for x in ["429", "rate_limit", "rate limit", "too many requests", "limită", "Limită"])
+            _is_key_err2 = any(x in err_str for x in ["epuizat", "invalide", "quota", "API key", "invalid_api_key", "authentication", "401"])
+            if _is_rate_limit2:
+                st.warning("⏳ Groq este puțin aglomerat — mai încearcă o dată în câteva secunde.", icon="🔄")
+                if st.button("🔄 Reîncercați răspunsul", key="_retry_after_key_error", type="primary"):
+                    st.session_state["_pending_retry"] = True
+                    st.rerun()
+            elif _is_key_err2:
                 st.warning(
-                    "⚠️ Cheia API s-a epuizat în timpul răspunsului. "
-                    "Cheia a fost schimbată automat — apasă **Reîncercați** pentru a primi răspunsul.",
+                    "⚠️ Cheia API Groq este invalidă sau quota zilnică s-a epuizat. "
+                    "Verifică cheia în console.groq.com.",
                     icon="🔑"
                 )
                 if st.button("🔄 Reîncercați răspunsul", key="_retry_after_key_error", type="primary"):
