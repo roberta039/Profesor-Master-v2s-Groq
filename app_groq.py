@@ -4734,26 +4734,42 @@ def run_chat_with_rotation(history_obj, payload, system_prompt=None):
             last_error = e
             error_msg = str(e) + " " + repr(e)
 
-            _is_key_error = (
+            _is_rate_limit = (
+                "429" in error_msg
+                or "rate_limit" in error_msg.lower()
+                or "rate limit" in error_msg.lower()
+                or "too many requests" in error_msg.lower()
+            )
+            _is_invalid_key = (
                 "invalid_api_key" in error_msg.lower()
                 or "authentication" in error_msg.lower()
                 or "401" in error_msg
-                or "429" in error_msg
-                or "rate_limit" in error_msg.lower()
-                or "quota" in error_msg.lower()
+                or ("403" in error_msg and "quota" not in error_msg.lower())
+            )
+            _is_quota = (
+                "quota" in error_msg.lower()
+                and "429" not in error_msg  # quota zilnică, nu rate limit pe minut
             )
 
-            if _is_key_error:
+            if _is_rate_limit:
+                # Rate limit pe minut (429) — așteptăm și reîncercăm, NU renunțăm
+                wait = min(3 * (attempt + 1), 15)  # 3s, 6s, 9s... max 15s
+                st.toast(f"⏳ Limită depășită — reîncerc în {wait}s...", icon="🔄")
+                time.sleep(wait)
+                continue
+
+            elif _is_invalid_key or _is_quota:
+                # Cheie invalidă sau quota zilnică epuizată — rotăm la altă cheie
                 _quota_key = "_quota_rotations"
                 rotations = st.session_state.get(_quota_key, 0) + 1
                 st.session_state[_quota_key] = rotations
                 if len(keys) <= 1 or rotations >= len(keys):
                     st.session_state.pop(_quota_key, None)
                     raise Exception(
-                        "Toate cheile API sunt epuizate sau invalide. "
-                        "Reîncearcă mai târziu sau adaugă o cheie personală în sidebar. 🔑"
+                        "Cheia API Groq este invalidă sau quota zilnică s-a epuizat. "
+                        "Verifică cheia în console.groq.com sau adaugă o cheie nouă în sidebar. 🔑"
                     )
-                st.toast(f"⚠️ Cheie invalidă/epuizată — schimb la cheia {st.session_state.key_index + 2}...", icon="🔄")
+                st.toast(f"⚠️ Cheie invalidă — schimb la cheia {st.session_state.key_index + 2}...", icon="🔄")
                 st.session_state.key_index = (st.session_state.key_index + 1) % len(keys)
                 time.sleep(0.5)
                 continue
