@@ -1849,92 +1849,116 @@ _PROMPT_SUBJECTS: dict[str, str] = {
 
        ELECTRICITATE — Circuit electric (DC și AC):
        ⚠️ INTERDICȚIE ABSOLUTĂ: NU folosi niciodată Mermaid, flowchart, sau cod [[MERMAID]]
-          pentru circuite electrice. Mermaid NU poate reda simboluri electrice corecte.
-          Folosești EXCLUSIV SVG inline în interiorul [[DESEN_SVG]]..[[/DESEN_SVG]].
+          pentru circuite electrice. Folosești EXCLUSIV SVG inline în [[DESEN_SVG]]..[[/DESEN_SVG]].
 
-       SIMBOLURI SVG PENTRU CIRCUITE — folosește exact aceste forme:
-       - Baterie: două linii verticale paralele (linie lungă = pol +, linie scurtă = pol -)
-         → <line x1="X" y1="Y-15" x2="X" y2="Y+15" stroke="black" stroke-width="3"/>  (pol +)
-         → <line x1="X" y1="Y-8"  x2="X" y2="Y+8"  stroke="black" stroke-width="6"/>  (pol -)
-         → Etichetă: <text>ε, r</text> deasupra
-       - Rezistor: dreptunghi mic (#3498db), 40×16px
-         → <rect x="X-20" y="Y-8" width="40" height="16" fill="#d6eaf8" stroke="#3498db" stroke-width="2"/>
-         → <text x="X" y="Y+4" text-anchor="middle" font-size="11">R</text>
-       - Fir conductor: <line stroke="black" stroke-width="2"/>  — MEREU la 90° (orizontal sau vertical)
-       - Nod (ramificație): <circle cx="X" cy="Y" r="4" fill="black"/>
-       - Ampermetru: <circle cx="X" cy="Y" r="14" fill="white" stroke="black" stroke-width="2"/>
-                     <text x="X" y="Y+4" text-anchor="middle" font-size="12" font-weight="bold">A</text>
-       - Voltmetru: la fel cu V în loc de A
-       - Săgeată curent: <line .../> + <polygon points="..." fill="black"/> pentru vârf
+       ════════════════════════════════════════════
+       REGULI ABSOLUTE SVG CIRCUITE (RESPECTĂ ÎNTOCMAI):
+       ════════════════════════════════════════════
+       1. Firele = NUMAI linii orizontale sau verticale (stroke="black" stroke-width="2")
+          → NICIODATĂ linii diagonale între componente
+       2. Bateria = simbol cu 2 linii orizontale paralele (NU dreptunghi albastru!):
+          → Linie lungă (pol +): <line x1="Xs-20" y1="Yb" x2="Xs+20" y2="Yb" stroke="black" stroke-width="3"/>
+          → Linie scurtă (pol -): <line x1="Xs-12" y1="Yb+12" x2="Xs+12" y2="Yb+12" stroke="black" stroke-width="6"/>
+          → Fir sus spre baterie: <line x1="Xs" y1="Y_top" x2="Xs" y2="Yb" stroke="black" stroke-width="2"/>
+          → Fir jos de la baterie: <line x1="Xs" y1="Yb+12" x2="Xs" y2="Y_bot" stroke="black" stroke-width="2"/>
+          → Etichetă ε,r la dreapta: <text x="Xs+28" y="Yb+8" font-size="13">ε, r</text>
+       3. Rezistorul = dreptunghi mic cu interior alb:
+          → <rect x="Xr-25" y="Yr-10" width="50" height="20" fill="white" stroke="black" stroke-width="2"/>
+          → <text x="Xr" y="Yr+5" text-anchor="middle" font-size="13">R</text>
+       4. Nod (ramificație) = cerc negru plin r=4:
+          → <circle cx="Xn" cy="Yn" r="4" fill="black"/>
+       5. Ampermetru = cerc cu litera A:
+          → <circle cx="Xa" cy="Ya" r="16" fill="white" stroke="black" stroke-width="2"/>
+          → <text x="Xa" y="Ya+5" text-anchor="middle" font-size="14" font-weight="bold">A</text>
+       6. Voltmetru = cerc cu litera V (la fel ca ampermetru)
 
-       TEMPLATE CIRCUIT SERIE (copie și adaptează):
-       <svg viewBox="0 0 500 280" xmlns="http://www.w3.org/2000/svg" font-family="Arial" font-size="13">
-         <!-- Firele exterioare -->
-         <line x1="60" y1="60" x2="440" y2="60" stroke="black" stroke-width="2"/>
-         <line x1="60" y1="220" x2="440" y2="220" stroke="black" stroke-width="2"/>
-         <line x1="60" y1="60" x2="60" y2="220" stroke="black" stroke-width="2"/>
-         <line x1="440" y1="60" x2="440" y2="220" stroke="black" stroke-width="2"/>
-         <!-- Baterie (stânga, pe firul vertical) -->
-         <line x1="60" y1="120" x2="60" y2="100" stroke="black" stroke-width="2"/>
-         <line x1="45" y1="120" x2="75" y2="120" stroke="black" stroke-width="3"/>
-         <line x1="50" y1="135" x2="70" y2="135" stroke="black" stroke-width="6"/>
-         <line x1="60" y1="135" x2="60" y2="160" stroke="black" stroke-width="2"/>
-         <text x="82" y="125" font-size="13">ε, r</text>
-         <!-- Rezistor R1 (sus, centru) -->
-         <line x1="180" y1="60" x2="200" y2="60" stroke="black" stroke-width="2"/>
-         <rect x="200" y="52" width="60" height="16" fill="#d6eaf8" stroke="#3498db" stroke-width="2"/>
-         <text x="230" y="64" text-anchor="middle" font-size="12">R₁</text>
-         <line x1="260" y1="60" x2="280" y2="60" stroke="black" stroke-width="2"/>
-         <!-- Rezistor R2 (sus, dreapta) -->
-         <rect x="330" y="52" width="60" height="16" fill="#d6eaf8" stroke="#3498db" stroke-width="2"/>
-         <text x="360" y="64" text-anchor="middle" font-size="12">R₂</text>
-         <!-- Etichete tensiune -->
-         <text x="250" y="240" text-anchor="middle" font-size="12" fill="#555">Circuit serie: R_total = R₁ + R₂</text>
+       ════════════════════════════════════════════
+       TEMPLATE COMPLET — CIRCUIT PARALEL (2 baterii + rezistor R):
+       Copiază EXACT, modifică doar etichetele ε,r₁,r₂,R
+       ════════════════════════════════════════════
+       <svg viewBox="0 0 580 340" xmlns="http://www.w3.org/2000/svg" font-family="Arial" font-size="13">
+         <!-- Bara orizontală sus (nod +) -->
+         <line x1="60" y1="50" x2="520" y2="50" stroke="black" stroke-width="2"/>
+         <!-- Bara orizontală jos (nod -) -->
+         <line x1="60" y1="290" x2="520" y2="290" stroke="black" stroke-width="2"/>
+
+         <!-- RAMURA 1: Bateria ε₁,r₁ (stânga) -->
+         <!-- fir vertical sus → baterie -->
+         <line x1="120" y1="50" x2="120" y2="140" stroke="black" stroke-width="2"/>
+         <!-- simbol baterie: linie lungă (pol+) -->
+         <line x1="100" y1="140" x2="140" y2="140" stroke="black" stroke-width="3"/>
+         <!-- simbol baterie: linie scurtă (pol-) -->
+         <line x1="108" y1="160" x2="132" y2="160" stroke="black" stroke-width="6"/>
+         <!-- fir vertical baterie → jos -->
+         <line x1="120" y1="160" x2="120" y2="290" stroke="black" stroke-width="2"/>
+         <!-- eticheta ε₁,r₁ -->
+         <text x="148" y="155" font-size="13">ε₁, r₁</text>
+         <!-- nod sus ramura 1 -->
+         <circle cx="120" cy="50" r="4" fill="black"/>
+         <!-- nod jos ramura 1 -->
+         <circle cx="120" cy="290" r="4" fill="black"/>
+
+         <!-- RAMURA 2: Bateria ε₂,r₂ (mijloc) -->
+         <line x1="300" y1="50" x2="300" y2="140" stroke="black" stroke-width="2"/>
+         <line x1="280" y1="140" x2="320" y2="140" stroke="black" stroke-width="3"/>
+         <line x1="288" y1="160" x2="312" y2="160" stroke="black" stroke-width="6"/>
+         <line x1="300" y1="160" x2="300" y2="290" stroke="black" stroke-width="2"/>
+         <text x="328" y="155" font-size="13">ε₂, r₂</text>
+         <circle cx="300" cy="50" r="4" fill="black"/>
+         <circle cx="300" cy="290" r="4" fill="black"/>
+
+         <!-- RAMURA 3: Rezistorul R (dreapta) -->
+         <line x1="460" y1="50" x2="460" y2="150" stroke="black" stroke-width="2"/>
+         <!-- rezistor vertical -->
+         <rect x="435" y="150" width="50" height="70" fill="white" stroke="black" stroke-width="2"/>
+         <text x="460" y="190" text-anchor="middle" font-size="14">R</text>
+         <line x1="460" y1="220" x2="460" y2="290" stroke="black" stroke-width="2"/>
+         <circle cx="460" cy="50" r="4" fill="black"/>
+         <circle cx="460" cy="290" r="4" fill="black"/>
+
+         <!-- Eticheta titlu -->
+         <text x="290" y="320" text-anchor="middle" font-size="12" fill="#555">Circuit paralel: 2 baterii + rezistor</text>
        </svg>
 
-       TEMPLATE CIRCUIT PARALEL (copie și adaptează — 2 baterii în paralel):
-       <svg viewBox="0 0 560 320" xmlns="http://www.w3.org/2000/svg" font-family="Arial" font-size="13">
-         <!-- Bara + (sus) și bara - (jos) -->
-         <line x1="40" y1="50" x2="520" y2="50" stroke="black" stroke-width="2"/>
-         <line x1="40" y1="270" x2="520" y2="270" stroke="black" stroke-width="2"/>
-         <!-- Bateria 1 (ramura stângă) -->
-         <line x1="120" y1="50" x2="120" y2="120" stroke="black" stroke-width="2"/>
-         <line x1="105" y1="120" x2="135" y2="120" stroke="black" stroke-width="3"/>
-         <text x="142" y="125" font-size="12">+</text>
-         <line x1="105" y1="140" x2="135" y2="140" stroke="black" stroke-width="6"/>
-         <text x="142" y="145" font-size="12">-</text>
-         <line x1="120" y1="140" x2="120" y2="270" stroke="black" stroke-width="2"/>
-         <text x="70" y="165" font-size="12">ε, r₁</text>
-         <!-- Bateria 2 (ramura mijloc) -->
-         <line x1="280" y1="50" x2="280" y2="120" stroke="black" stroke-width="2"/>
-         <line x1="265" y1="120" x2="295" y2="120" stroke="black" stroke-width="3"/>
-         <line x1="265" y1="140" x2="295" y2="140" stroke="black" stroke-width="6"/>
-         <line x1="280" y1="140" x2="280" y2="270" stroke="black" stroke-width="2"/>
-         <text x="300" y="165" font-size="12">ε, r₂</text>
-         <!-- Rezistenta de sarcina R (ramura dreapta) -->
-         <line x1="440" y1="50" x2="440" y2="120" stroke="black" stroke-width="2"/>
-         <rect x="424" y="120" width="32" height="80" fill="#d6eaf8" stroke="#3498db" stroke-width="2"/>
-         <text x="440" y="165" text-anchor="middle" font-size="12">R</text>
-         <line x1="440" y1="200" x2="440" y2="270" stroke="black" stroke-width="2"/>
-         <!-- Noduri de circuit -->
-         <circle cx="120" cy="50" r="4" fill="black"/>
-         <circle cx="280" cy="50" r="4" fill="black"/>
-         <circle cx="440" cy="50" r="4" fill="black"/>
-         <circle cx="120" cy="270" r="4" fill="black"/>
-         <circle cx="280" cy="270" r="4" fill="black"/>
-         <circle cx="440" cy="270" r="4" fill="black"/>
-         <!-- Eticheta -->
-         <text x="280" y="300" text-anchor="middle" font-size="12" fill="#555">Circuit paralel: 1/r_eq = 1/r₁ + 1/r₂</text>
+       ════════════════════════════════════════════
+       TEMPLATE COMPLET — CIRCUIT SERIE (1 baterie + R₁ + R₂):
+       ════════════════════════════════════════════
+       <svg viewBox="0 0 560 300" xmlns="http://www.w3.org/2000/svg" font-family="Arial" font-size="13">
+         <!-- Dreptunghi exterior circuit -->
+         <line x1="60" y1="60" x2="500" y2="60" stroke="black" stroke-width="2"/>
+         <line x1="60" y1="240" x2="500" y2="240" stroke="black" stroke-width="2"/>
+         <line x1="60" y1="60" x2="60" y2="240" stroke="black" stroke-width="2"/>
+         <line x1="500" y1="60" x2="500" y2="240" stroke="black" stroke-width="2"/>
+
+         <!-- Baterie pe latura stânga (verticală) -->
+         <line x1="60" y1="120" x2="60" y2="130" stroke="black" stroke-width="2"/>
+         <line x1="40" y1="130" x2="80" y2="130" stroke="black" stroke-width="3"/>
+         <line x1="47" y1="148" x2="73" y2="148" stroke="black" stroke-width="6"/>
+         <line x1="60" y1="148" x2="60" y2="158" stroke="black" stroke-width="2"/>
+         <text x="85" y="142" font-size="13">ε, r</text>
+
+         <!-- Rezistor R₁ pe latura sus -->
+         <line x1="160" y1="60" x2="185" y2="60" stroke="black" stroke-width="2"/>
+         <rect x="185" y="50" width="70" height="20" fill="white" stroke="black" stroke-width="2"/>
+         <text x="220" y="64" text-anchor="middle" font-size="13">R₁</text>
+         <line x1="255" y1="60" x2="280" y2="60" stroke="black" stroke-width="2"/>
+
+         <!-- Rezistor R₂ pe latura sus (dreapta) -->
+         <line x1="340" y1="60" x2="365" y2="60" stroke="black" stroke-width="2"/>
+         <rect x="365" y="50" width="70" height="20" fill="white" stroke="black" stroke-width="2"/>
+         <text x="400" y="64" text-anchor="middle" font-size="13">R₂</text>
+         <line x1="435" y1="60" x2="500" y2="60" stroke="black" stroke-width="2"/>
+
+         <text x="280" y="268" text-anchor="middle" font-size="12" fill="#555">Circuit serie: R_total = R₁ + R₂</text>
        </svg>
 
        REGULI STRICTE SVG circuit:
-       - Firele MEREU la 90° (niciodată diagonal)
+       - Firele MEREU la 90° — NICIODATĂ diagonal
+       - Bateria = 2 linii orizontale (lungă + scurtă), NU dreptunghi colorat
+       - Rezistorul = dreptunghi alb cu bordură neagră, NU dreptunghi albastru
        - Nodurile (ramificații) = cercuri negre pline r=4
-       - Sensul curentului: săgeată mică pe fir (de la + la -)
-       - Etichetele: clar, lângă component, font-size 11-13
+       - Etichetele: lângă component, font-size 13, text negru
        - viewBox adaptat la dimensiunea reală a circuitului
-       - Serie: componente pe același fir continuu
-       - Paralel: ramuri separate între 2 noduri comune (bara + și bara -)
 
        OPTICĂ — Diagrama razelor:
        - Axa optică: linie orizontală întreruptă (#666666)
